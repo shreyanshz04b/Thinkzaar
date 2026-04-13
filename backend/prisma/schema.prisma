@@ -1,0 +1,436 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── Enums ───────────────────────────────────────────────────────────────────
+
+enum Role {
+  USER
+  MODERATOR
+  ADMIN
+}
+
+enum ProblemStatus {
+  OPEN
+  IN_REVIEW
+  SOLVED
+  CLOSED
+}
+
+enum SolutionStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum VoteType {
+  UPVOTE
+  DOWNVOTE
+}
+
+enum TokenType {
+  REFRESH
+  EMAIL_VERIFICATION
+  PASSWORD_RESET
+}
+
+enum NotificationType {
+  VOTE_RECEIVED
+  SOLUTION_ACCEPTED
+  COMMENT_ADDED
+  PROBLEM_SOLVED
+  MENTION
+}
+
+// ─── User ────────────────────────────────────────────────────────────────────
+
+model User {
+  id                String    @id @default(cuid())
+  email             String    @unique
+  username          String    @unique
+  passwordHash      String
+  role              Role      @default(USER)
+  emailVerified     Boolean   @default(false)
+  avatarUrl         String?
+  bio               String?
+  reputationScore   Int       @default(0)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  deletedAt         DateTime?
+
+  tokens            Token[]
+  problems          Problem[]
+  solutions         Solution[]
+  votes             Vote[]
+  comments          Comment[]
+  notifications     Notification[]
+  userBadges        UserBadge[]
+  aiEmbedding       UserEmbedding?
+  sessions          UserSession[]
+
+  @@index([email])
+  @@index([username])
+  @@index([role])
+  @@index([reputationScore])
+  @@index([createdAt])
+  @@map("users")
+}
+
+// ─── Session ─────────────────────────────────────────────────────────────────
+
+model UserSession {
+  id           String   @id @default(cuid())
+  userId       String
+  ipAddress    String?
+  userAgent    String?
+  lastActiveAt DateTime @default(now())
+  createdAt    DateTime @default(now())
+
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([lastActiveAt])
+  @@map("user_sessions")
+}
+
+// ─── Token ───────────────────────────────────────────────────────────────────
+
+model Token {
+  id        String    @id @default(cuid())
+  userId    String
+  type      TokenType
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, type])
+  @@index([tokenHash])
+  @@index([expiresAt])
+  @@map("tokens")
+}
+
+// ─── Category ────────────────────────────────────────────────────────────────
+
+model Category {
+  id          String    @id @default(cuid())
+  name        String    @unique
+  slug        String    @unique
+  description String?
+  iconUrl     String?
+  createdAt   DateTime  @default(now())
+
+  problems    ProblemCategory[]
+
+  @@index([slug])
+  @@map("categories")
+}
+
+// ─── Tag ─────────────────────────────────────────────────────────────────────
+
+model Tag {
+  id        String    @id @default(cuid())
+  name      String    @unique
+  slug      String    @unique
+  createdAt DateTime  @default(now())
+
+  problems  ProblemTag[]
+
+  @@index([slug])
+  @@map("tags")
+}
+
+// ─── Problem ─────────────────────────────────────────────────────────────────
+
+model Problem {
+  id              String        @id @default(cuid())
+  authorId        String
+  title           String
+  slug            String        @unique
+  description     String
+  status          ProblemStatus @default(OPEN)
+  viewCount       Int           @default(0)
+  solutionCount   Int           @default(0)
+  voteScore       Int           @default(0)
+  aiScore         Float         @default(0)
+  isFeatured      Boolean       @default(false)
+  acceptedSolutionId String?    @unique
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  deletedAt       DateTime?
+
+  author          User          @relation(fields: [authorId], references: [id], onDelete: Restrict)
+  acceptedSolution Solution?    @relation("AcceptedSolution", fields: [acceptedSolutionId], references: [id])
+  solutions       Solution[]    @relation("ProblemSolutions")
+  votes           Vote[]
+  comments        Comment[]
+  categories      ProblemCategory[]
+  tags            ProblemTag[]
+  aiEmbedding     ProblemEmbedding?
+  attachments     Attachment[]
+
+  @@index([authorId])
+  @@index([status])
+  @@index([createdAt])
+  @@index([voteScore])
+  @@index([aiScore])
+  @@index([isFeatured])
+  @@index([slug])
+  @@index([deletedAt])
+  @@map("problems")
+}
+
+// ─── ProblemCategory (join) ───────────────────────────────────────────────────
+
+model ProblemCategory {
+  problemId  String
+  categoryId String
+
+  problem    Problem  @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@id([problemId, categoryId])
+  @@index([categoryId])
+  @@map("problem_categories")
+}
+
+// ─── ProblemTag (join) ────────────────────────────────────────────────────────
+
+model ProblemTag {
+  problemId String
+  tagId     String
+
+  problem   Problem @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  tag       Tag     @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([problemId, tagId])
+  @@index([tagId])
+  @@map("problem_tags")
+}
+
+// ─── Solution ────────────────────────────────────────────────────────────────
+
+model Solution {
+  id          String         @id @default(cuid())
+  problemId   String
+  authorId    String
+  content     String
+  status      SolutionStatus @default(PENDING)
+  voteScore   Int            @default(0)
+  aiScore     Float          @default(0)
+  isAccepted  Boolean        @default(false)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  deletedAt   DateTime?
+
+  problem             Problem    @relation("ProblemSolutions", fields: [problemId], references: [id], onDelete: Cascade)
+  author              User       @relation(fields: [authorId], references: [id], onDelete: Restrict)
+  acceptedForProblem  Problem?   @relation("AcceptedSolution")
+  votes               Vote[]
+  comments            Comment[]
+  aiEmbedding         SolutionEmbedding?
+  attachments         Attachment[]
+
+  @@index([problemId])
+  @@index([authorId])
+  @@index([status])
+  @@index([voteScore])
+  @@index([aiScore])
+  @@index([createdAt])
+  @@index([isAccepted])
+  @@map("solutions")
+}
+
+// ─── Vote ────────────────────────────────────────────────────────────────────
+
+model Vote {
+  id         String   @id @default(cuid())
+  userId     String
+  problemId  String?
+  solutionId String?
+  commentId  String?
+  type       VoteType
+  createdAt  DateTime @default(now())
+
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  problem    Problem?  @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  solution   Solution? @relation(fields: [solutionId], references: [id], onDelete: Cascade)
+  comment    Comment?  @relation(fields: [commentId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, problemId])
+  @@unique([userId, solutionId])
+  @@unique([userId, commentId])
+  @@index([problemId])
+  @@index([solutionId])
+  @@index([commentId])
+  @@index([userId])
+  @@map("votes")
+}
+
+// ─── Comment ─────────────────────────────────────────────────────────────────
+
+model Comment {
+  id         String    @id @default(cuid())
+  authorId   String
+  problemId  String?
+  solutionId String?
+  parentId   String?
+  content    String
+  voteScore  Int       @default(0)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  deletedAt  DateTime?
+
+  author     User      @relation(fields: [authorId], references: [id], onDelete: Restrict)
+  problem    Problem?  @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  solution   Solution? @relation(fields: [solutionId], references: [id], onDelete: Cascade)
+  parent     Comment?  @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies    Comment[] @relation("CommentReplies")
+  votes      Vote[]
+
+  @@index([authorId])
+  @@index([problemId])
+  @@index([solutionId])
+  @@index([parentId])
+  @@index([createdAt])
+  @@map("comments")
+}
+
+// ─── Attachment ───────────────────────────────────────────────────────────────
+
+model Attachment {
+  id         String   @id @default(cuid())
+  problemId  String?
+  solutionId String?
+  url        String
+  mimeType   String
+  sizeBytes  Int
+  createdAt  DateTime @default(now())
+
+  problem    Problem?  @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  solution   Solution? @relation(fields: [solutionId], references: [id], onDelete: Cascade)
+
+  @@index([problemId])
+  @@index([solutionId])
+  @@map("attachments")
+}
+
+// ─── Notification ─────────────────────────────────────────────────────────────
+
+model Notification {
+  id         String           @id @default(cuid())
+  userId     String
+  type       NotificationType
+  title      String
+  body       String
+  isRead     Boolean          @default(false)
+  metadata   Json?
+  createdAt  DateTime         @default(now())
+
+  user       User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@index([createdAt])
+  @@map("notifications")
+}
+
+// ─── Badge ────────────────────────────────────────────────────────────────────
+
+model Badge {
+  id          String      @id @default(cuid())
+  name        String      @unique
+  description String
+  iconUrl     String?
+  threshold   Int
+  createdAt   DateTime    @default(now())
+
+  userBadges  UserBadge[]
+
+  @@map("badges")
+}
+
+model UserBadge {
+  userId    String
+  badgeId   String
+  awardedAt DateTime @default(now())
+
+  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  badge     Badge  @relation(fields: [badgeId], references: [id], onDelete: Cascade)
+
+  @@id([userId, badgeId])
+  @@index([userId])
+  @@map("user_badges")
+}
+
+// ─── AI Embeddings ────────────────────────────────────────────────────────────
+
+model ProblemEmbedding {
+  id          String   @id @default(cuid())
+  problemId   String   @unique
+  embedding   Float[]
+  modelVersion String  @default("xenova-all-MiniLM-L6-v2")
+  computedAt  DateTime @default(now())
+
+  problem     Problem  @relation(fields: [problemId], references: [id], onDelete: Cascade)
+
+  @@map("problem_embeddings")
+}
+
+model SolutionEmbedding {
+  id          String   @id @default(cuid())
+  solutionId  String   @unique
+  embedding   Float[]
+  modelVersion String  @default("xenova-all-MiniLM-L6-v2")
+  computedAt  DateTime @default(now())
+
+  solution    Solution @relation(fields: [solutionId], references: [id], onDelete: Cascade)
+
+  @@map("solution_embeddings")
+}
+
+model UserEmbedding {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  embedding   Float[]
+  modelVersion String  @default("xenova-all-MiniLM-L6-v2")
+  computedAt  DateTime @default(now())
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_embeddings")
+}
+
+// ─── AI Score Cache ───────────────────────────────────────────────────────────
+
+model AiScoreCache {
+  id          String   @id @default(cuid())
+  entityType  String
+  entityId    String
+  scoreType   String
+  score       Float
+  expiresAt   DateTime
+  computedAt  DateTime @default(now())
+
+  @@unique([entityType, entityId, scoreType])
+  @@index([expiresAt])
+  @@map("ai_score_cache")
+}
+
+// ─── Rate Limit Log (overflow fallback) ──────────────────────────────────────
+
+model RateLimitLog {
+  id         String   @id @default(cuid())
+  identifier String
+  endpoint   String
+  hitAt      DateTime @default(now())
+
+  @@index([identifier, endpoint])
+  @@index([hitAt])
+  @@map("rate_limit_logs")
+}
